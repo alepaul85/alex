@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>alepaul vault</title>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@900&display=swap');
+    body { margin:0; background:#0a0a0f; color:#e0e0ff; font-family:system-ui; overflow-x:hidden; position:relative; }
+    .logo { font-family:'Orbitron'; font-size:140px; text-align:center; margin:30px 0; background:linear-gradient(45deg,#8b5cf6,#ff6b6b); -webkit-background-clip:text; -webkit-text-fill-color:transparent; animation:pulse 4s infinite; text-shadow:0 0 50px #8b5cf6; }
+    @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
+    h1 { text-align:center; font-size:42px; margin:10px; color:#8b5cf6; letter-spacing:2px; }
+    .container { max-width:500px; margin:40px auto; padding:20px; background:#111118; border-radius:20px; box-shadow:0 0 40px rgba(139,92,246,0.3); }
+    input, button { padding:14px; margin:12px 0; width:100%; border-radius:12px; border:none; font-size:16px; box-sizing:border-box; }
+    button { background:#8b5cf6; color:white; cursor:pointer; font-weight:bold; transition:0.3s; }
+    button:hover { background:#a78bfa; }
+    .hidden { display:none; }
+    .vault-container { max-width:1100px; }
+    .chat { background:#111118; border-radius:16px; padding:15px; height:400px; overflow-y:auto; margin:20px 0; border:1px solid #333; }
+    .msg { margin:10px 0; padding:12px; border-radius:12px; background:#1f1f2f; max-width:80%; word-wrap:break-word; }
+    .msg.self { background:#8b5cf6; margin-left:auto; }
+    .file-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:20px; }
+    .file-item { background:#111118; padding:15px; border-radius:16px; text-align:center; position:relative; border:1px solid #333; }
+    .delete-btn { position:absolute; top:8px; right:8px; background:#ff3333; padding:6px 12px; border-radius:8px; font-size:12px; cursor:pointer; }
+    .msg-error { color:#ff6b6b; text-align:center; }
+    progress { height:10px; margin:10px 0; width:100%; }
+
+    /* Toast Notifications */
+    #toastContainer { position:fixed; bottom:20px; right:20px; z-index:9999; display:flex; flex-direction:column; gap:10px; }
+    .toast { min-width:300px; padding:16px 20px; border-radius:12px; color:white; font-weight:bold; box-shadow:0 10px 30px rgba(0,0,0,0.6); opacity:0; transform:translateY(20px); animation:toastIn 0.5s forwards, toastOut 0.5s 4.5s forwards; display:flex; align-items:center; gap:12px; }
+    .toast.upload { background:#8b5cf6; }
+    .toast.chat { background:#10b981; }
+    .toast.delete { background:#ef4444; }
+    .toast.newuser { background:#f59e0b; }
+    @keyframes toastIn { to { opacity:1; transform:translateY(0); } }
+    @keyframes toastOut { to { opacity:0; transform:translateY(20px); } }
+  </style>
+</head>
+<body>
+
+  <!-- Toast Container -->
+  <div id="toastContainer"></div>
+
+  <!-- Auth -->
+  <div id="auth" class="container">
+    <div class="logo">A</div>
+    <h1>alepaul vault</h1>
+    
+    <div id="loginForm">
+      <input type="email" id="loginEmail" placeholder="Email" required />
+      <input type="password" id="loginPass" placeholder="Password" required />
+      <button onclick="login()">Login</button>
+      <button onclick="showSignup()">Create Account</button>
+      <p id="authMsg" class="msg-error"></p>
+    </div>
+
+    <div id="signupForm" class="hidden">
+      <input type="text" id="displayName" placeholder="Display Name" required />
+      <input type="email" id="newEmail" placeholder="Email" required />
+      <input type="password" id="newPass" placeholder="Password (min 6 chars)" required />
+      <button onclick="signup()">Create Account</button>
+      <button onclick="showLogin()">Back to Login</button>
+      <p id="signupMsg" class="msg-error"></p>
+    </div>
+  </div>
+
+  <!-- Vault -->
+  <div id="vault" class="container vault-container hidden">
+    <div class="logo">A</div>
+    <h1>alepaul <span id="welcome"></span></h1>
+    <button onclick="logout()">Logout</button>
+    <hr>
+
+    <h2>Upload Files</h2>
+    <input type="text" id="folderName" placeholder="Folder (optional)" />
+    <input type="file" id="fileInput" multiple />
+    <button onclick="uploadFiles()">Upload</button>
+    <progress id="uploadProgress" value="0" max="100" class="hidden"></progress>
+
+    <h2>Files & Folders</h2>
+    <div id="files" class="file-grid"></div>
+
+    <h2>Chat</h2>
+    <div id="chat" class="chat"></div>
+    <div style="display:flex;gap:10px;">
+      <input type="text" id="chatInput" placeholder="Type message..." onkeypress="if(event.key==='Enter') sendMsg()" style="flex:1;" />
+      <button onclick="sendMsg()">Send</button>
+    </div>
+
+    <div id="adminPanel" class="hidden" style="margin-top:50px;">
+      <h2 style="color:#ff6b6b">Admin Panel</h2>
+      <h3>All Users</h3>
+      <div id="userList"></div>
+    </div>
+  </div>
+
+<script>
+// === YOUR EXACT FIREBASE CONFIG (already inserted) ===
+const firebaseConfig = {
+  apiKey: "AIzaSyA1yeFFv3dA0PcJFxJxr-ghPojvIj1qNJI",
+  authDomain: "alepaul-92d42.firebaseapp.com",
+  projectId: "alepaul-92d42",
+  storageBucket: "alepaul-92d42.firebasestorage.app",
+  messagingSenderId: "510317064748",
+  appId: "1:510317064748:web:5131e84cba11e8a8261789",
+  measurementId: "G-BR5FL2KC56"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+const storage = firebase.storage();
+
+let currentUser = null;
+let isAdmin = false;
+
+// Toast
+function showToast(msg, type = 'upload') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `<span>${msg}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 5500);
+}
+
+// Auth State
+auth.onAuthStateChanged(async user => {
+  if (user) {
+    currentUser = user;
+    const doc = await db.collection('users').doc(user.uid).get();
+    isAdmin = doc.exists && doc.data().isAdmin;
+
+    document.getElementById('auth').classList.add('hidden');
+    document.getElementById('vault').classList.remove('hidden');
+    document.getElementById('welcome').textContent = `— ${user.displayName || user.email.split('@')[0]}`;
+    if (isAdmin) document.getElementById('adminPanel').classList.remove('hidden');
+
+    loadFiles();
+    loadChat();
+    if (isAdmin) loadUserList();
+
+    listenToNewFiles();
+    listenToChat();
+    listenToDeletions();
+  } else {
+    document.getElementById('vault').classList.add('hidden');
+    document.getElementById('auth').classList.remove('hidden');
+    showLogin();
+  }
+});
+
+// Auth helpers
+function showLogin() { document.getElementById('loginForm').classList.remove('hidden'); document.getElementById('signupForm').classList.add('hidden'); }
+function showSignup() { document.getElementById('loginForm').classList.add('hidden'); document.getElementById('signupForm').classList.remove('hidden'); }
+
+window.login = () => auth.signInWithEmailAndPassword(document.getElementById('loginEmail').value.trim(), document.getElementById('loginPass').value).catch(e => document.getElementById('authMsg').textContent = e.message);
+window.logout = () => auth.signOut();
+
+window.signup = async () => {
+  const name = document.getElementById('displayName').value.trim();
+  const email = document.getElementById('newEmail').value.trim();
+  const pass = document.getElementById('newPass').value;
+  if (pass.length < 6) return document.getElementById('signupMsg').textContent = "Password too short";
+  try {
+    const {user} = await auth.createUserWithEmailAndPassword(email, pass);
+    await user.updateProfile({displayName: name});
+    await db.collection('users').doc(user.uid).set({isAdmin: false, createdAt: firebase.firestore.FieldValue.serverTimestamp()});
+  } catch(e) { document.getElementById('signupMsg').textContent = e.message; }
+};
+
+// Upload + Activity Log
+window.uploadFiles = async () => {
+  const files = document.getElementById('fileInput').files;
+  if (!files.length) return alert("Choose files");
+  const folder = document.getElementById('folderName').value.trim() || 'root';
+  const prog = document.getElementById('uploadProgress'); prog.classList.remove('hidden');
+
+  for (const file of files) {
+    const path = `${currentUser.uid}/${folder}/${file.name}`;
+    await storage.ref(path).put(file);
+    await db.collection('activity').add({
+      type: 'upload', uid: currentUser.uid, userName: currentUser.displayName || currentUser.email.split('@')[0],
+      fileName: file.name, timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }
+  prog.classList.add('hidden'); prog.value = 0;
+  document.getElementById('fileInput').value = document.getElementById('folderName').value = '';
+  loadFiles();
+  showToast(`Uploaded ${files.length} file(s)`, 'upload');
+};
+
+// Delete + Log
+window.deleteFile = async path => {
+  if (!confirm("Delete forever?")) return;
+  const name = path.split('/').pop();
+  await storage.ref(path).delete();
+  await db.collection('activity').add({
+    type: 'delete', uid: currentUser.uid, userName: currentUser.displayName || currentUser.email.split('@')[0],
+    fileName: name, timestamp: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  loadFiles();
+  showToast(`Deleted "${name}"`, 'delete');
+};
+
+// Load Files
+async function loadFiles() {
+  const grid = document.getElementById('files'); grid.innerHTML = '<p>Loading...</p>';
+  const list = await storage.ref(currentUser.uid).listAll();
+  const folders = new Set(); const items = [];
+
+  list.prefixes.forEach(p => folders.add(p.fullPath.split('/')[1] || 'root'));
+  for (const item of list.items) {
+    const url = await item.getDownloadURL();
+    const folder = item.fullPath.split('/').slice(1,-1).join('/') || 'root';
+    folders.add(folder);
+    items.push({name: item.name, url, path: item.fullPath, folder});
+  }
+
+  grid.innerHTML = '';
+  folders.forEach(f => grid.innerHTML += `<div class="file-item"><strong>Folder: ${f}</strong></div>`);
+  items.forEach(i => {
+    grid.innerHTML += `<div class="file-item"><strong>${i.name}</strong><br><small>${i.folder}</small><br>
+      <a href="${i.url}" target="_blank">Download</a>
+      <button class="delete-btn" onclick="deleteFile('${i.path}')">Delete</button></div>`;
+  });
+  if (!items.length && !folders.size) grid.innerHTML = '<p>No files yet.</p>';
+}
+
+// Chat
+window.sendMsg = async () => {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim(); if (!text) return;
+  await db.collection('chat').add({
+    uid: currentUser.uid, name: currentUser.displayName || currentUser.email.split('@')[0],
+    text, time: firebase.firestore.FieldValue.serverTimestamp()
+  });
+  input.value = '';
+};
+
+function loadChat() {
+  db.collection('chat').orderBy('time').onSnapshot(snap => {
+    const chat = document.getElementById('chat'); chat.innerHTML = '';
+    snap.forEach(doc => {
+      const d = doc.data();
+      chat.innerHTML += `<div class="msg ${d.uid===currentUser.uid?'self':''}"><strong>${d.name}:</strong> ${d.text}</div>`;
+    });
+    chat.scrollTop = chat.scrollHeight;
+  });
+}
+
+// Real-time Listeners
+function listenToNewFiles() { db.collection('activity').where('type','==','upload').onSnapshot(s => s.docChanges().forEach(c => { if(c.type==='added' && c.doc.data().uid !== currentUser.uid) showToast(`${c.doc.data().userName} uploaded "${c.doc.data().fileName}"`, 'upload'); })); }
+function listenToDeletions() { db.collection('activity').where('type','==','delete').onSnapshot(s => s.docChanges().forEach(c => { if(c.type==='added' && c.doc.data().uid !== currentUser.uid) showToast(`${c.doc.data().userName} deleted "${c.doc.data().fileName}"`, 'delete'); })); }
+function listenToChat() { db.collection('chat').orderBy('time').onSnapshot(s => s.docChanges().forEach(c => { if(c.type==='added' && c.doc.data().uid !== currentUser.uid) showToast(`${c.doc.data().name}: ${c.doc.data().text.substring(0,40)}...`, 'chat'); })); }
+
+// Admin
+async function loadUserList() {
+  const list = document.getElementById('userList'); list.innerHTML = '<p>Loading...</p>';
+  const snap = await db.collection('users').get();
+  list.innerHTML = '';
+  for (const doc of snap.docs) {
+    const user = await auth.getUser(doc.id);
+    list.innerHTML += `<div class="user-item"><div><strong>${user.displayName||'No name'}</strong><br><small>${user.email}</small></div>
+      <button onclick="toggleAdmin('${doc.id}',${!doc.data().isAdmin})" style="background:${doc.data().isAdmin?'#ff3333':'#8b5cf6'}">
+        ${doc.data().isAdmin?'Revoke Admin':'Make Admin'}</button></div>`;
+  }
+}
+window.toggleAdmin = async (uid, make) => { if(confirm(make?'Make admin?':'Revoke?')) { await db.collection('users').doc(uid).update({isAdmin:make}); loadUserList(); }};
+
+</script>
+</body>
+</html>
